@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using iconnect;
 using Newtonsoft.Json;
+using System.Text.RegularExpressions;
 
 namespace AudioLibraryExtension
 {
@@ -89,7 +90,7 @@ namespace AudioLibraryExtension
             {
                 using (WebClient client = new WebClient())
                 {
-                    client.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                    client.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
                     client.Proxy = null;
 
                     byte[] audioData = client.DownloadData(url);
@@ -266,16 +267,16 @@ namespace AudioLibraryExtension
                     return;
                 }
 
-                // Handle /audioadd <name>|<url>|<owner>
-                if (command.StartsWith("audioadd "))
+                // Handle /addaudio <url> <name>
+                if (command.StartsWith("addaudio "))
                 {
                     string parameters = cmd.Substring(9).Trim();
                     HandleAddAudioSubstring(client, parameters);
                     return;
                 }
 
-                // Handle /audioremove <id>
-                if (command.StartsWith("audioremove "))
+                // Handle /removeaudio <id>
+                if (command.StartsWith("removeaudio "))
                 {
                     string idStr = cmd.Substring(12).Trim();
                     HandleRemoveAudioSubstring(client, idStr);
@@ -333,15 +334,45 @@ namespace AudioLibraryExtension
                     return;
                 }
 
-                client.Print("🔄 Descargando y reproduciendo audio desde URL...");
+                client.Print("🔄 Procesando URL...");
 
-                string base64Audio = DownloadAndConvertToBase64(url);
+                string audioUrl = null;
+                
+                // FIRST: Check if it's a direct audio URL
+                if (IsValidAudioUrl(url))
+                {
+                    audioUrl = url;
+                    client.Print($"✅ URL es un archivo de audio directo.");
+                }
+                // SECOND: Check if it's a MyInstants page and extract audio URL
+                else if (url.Contains("myinstants.com"))
+                {
+                    audioUrl = ExtractAudioUrlFromMyInstants(url);
+                    if (audioUrl != null)
+                    {
+                        client.Print($"✅ Extraído audio de página MyInstants: {audioUrl}");
+                    }
+                    else
+                    {
+                        client.Print("❌ No se pudo extraer un enlace de audio de la página MyInstants.");
+                        return;
+                    }
+                }
+                else
+                {
+                    client.Print("❌ URL no válida. Debe ser un enlace directo a audio (.mp3, .wav, etc.) o una página de MyInstants.");
+                    return;
+                }
+
+                client.Print($"🔄 Descargando audio desde: {audioUrl}");
+
+                string base64Audio = DownloadAndConvertToBase64(audioUrl);
 
                 if (!string.IsNullOrEmpty(base64Audio))
                 {
                     lock (cacheLock)
                     {
-                        audioCache[url] = base64Audio;
+                        audioCache[audioUrl] = base64Audio;
                     }
 
                     SendAudioToAllBase64(client.Name, base64Audio);
@@ -356,6 +387,163 @@ namespace AudioLibraryExtension
             {
                 client.Print($"❌ Error: {ex.Message}");
             }
+        }
+
+        private string ExtractAudioUrlFromMyInstants(string url)
+        {
+            // Check if it's a MyInstants URL
+            if (!url.Contains("myinstants.com"))
+                return null;
+
+            try
+            {
+                using (WebClient client = new WebClient())
+                {
+                    client.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                    client.Proxy = null;
+                    client.Encoding = System.Text.Encoding.UTF8;
+
+                    Console.WriteLine($"🔄 Extrayendo audio de MyInstants: {url}");
+                    string html = client.DownloadString(url);
+
+                    // Method 1: Look for the preloadAudioUrl variable in JavaScript (most reliable)
+                    var preloadRegex = new Regex(@"preloadAudioUrl\s*=\s*['""]([^'""]+)['""]");
+                    var preloadMatch = preloadRegex.Match(html);
+
+                    if (preloadMatch.Success)
+                    {
+                        string audioPath = preloadMatch.Groups[1].Value.Trim();
+                        Console.WriteLine($"✅ Encontrado preloadAudioUrl: {audioPath}");
+                        
+                        // If it's a relative path, make it absolute
+                        if (audioPath.StartsWith("/"))
+                        {
+                            if (audioPath.StartsWith("//"))
+                            {
+                                return "https:" + audioPath;
+                            }
+                            return "https://www.myinstants.com" + audioPath;
+                        }
+                        else if (audioPath.StartsWith("media/"))
+                        {
+                            return "https://www.myinstants.com/" + audioPath;
+                        }
+                        
+                        return audioPath;
+                    }
+
+                    // Method 2: Look for audio elements
+                    var audioRegex = new Regex(@"<audio[^>]+src=['""]([^'""]+)['""]");
+                    var audioMatch = audioRegex.Match(html);
+                    
+                    if (audioMatch.Success)
+                    {
+                        string audioSrc = audioMatch.Groups[1].Value.Trim();
+                        Console.WriteLine($"✅ Encontrado elemento audio con src: {audioSrc}");
+                        return MakeAbsoluteUrl(audioSrc, url);
+                    }
+
+                    // Method 3: Look for source elements inside audio
+                    var sourceRegex = new Regex(@"<source[^>]+src=['""]([^'""]+)['""][^>]+type=['""]audio/");
+                    var sourceMatch = sourceRegex.Match(html);
+                    
+                    if (sourceMatch.Success)
+                    {
+                        string audioSrc = sourceMatch.Groups[1].Value.Trim();
+                        Console.WriteLine($"✅ Encontrado elemento source con src: {audioSrc}");
+                        return MakeAbsoluteUrl(audioSrc, url);
+                    }
+
+                    // Method 4: Look for MP3 links in the page
+                    var mp3Regex = new Regex(@"href=['""]([^'""]*\.mp3)['""]");
+                    var mp3Matches = mp3Regex.Matches(html);
+                    
+                    foreach (Match match in mp3Matches)
+                    {
+                        string mp3Url = match.Groups[1].Value.Trim();
+                        if (mp3Url.Contains("media/sounds/"))
+                        {
+                            Console.WriteLine($"✅ Encontrado enlace MP3: {mp3Url}");
+                            return MakeAbsoluteUrl(mp3Url, url);
+                        }
+                    }
+
+                    // Method 5: Look for any .mp3 file
+                    if (mp3Matches.Count > 0)
+                    {
+                        string mp3Url = mp3Matches[0].Groups[1].Value.Trim();
+                        Console.WriteLine($"✅ Encontrado enlace MP3: {mp3Url}");
+                        return MakeAbsoluteUrl(mp3Url, url);
+                    }
+
+                    Console.WriteLine($"⚠️ No se encontró audio en la página MyInstants: {url}");
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error extrayendo URL de audio de MyInstants: {ex.Message}");
+                return null;
+            }
+        }
+
+        private string MakeAbsoluteUrl(string relativeUrl, string baseUrl)
+        {
+            if (string.IsNullOrEmpty(relativeUrl))
+                return null;
+
+            if (relativeUrl.StartsWith("http://") || relativeUrl.StartsWith("https://"))
+                return relativeUrl;
+
+            if (relativeUrl.StartsWith("//"))
+                return "https:" + relativeUrl;
+
+            if (relativeUrl.StartsWith("/"))
+            {
+                // Get the domain from baseUrl
+                Uri baseUri;
+                try
+                {
+                    baseUri = new Uri(baseUrl);
+                }
+                catch
+                {
+                    baseUri = new Uri("https://www.myinstants.com");
+                }
+                return $"{baseUri.Scheme}://{baseUri.Host}{relativeUrl}";
+            }
+
+            // Relative path without leading slash
+            Uri uri = new Uri(baseUrl);
+            string basePath = uri.AbsoluteUri.Substring(0, uri.AbsoluteUri.LastIndexOf('/') + 1);
+            return basePath + relativeUrl;
+        }
+
+        private bool IsValidAudioUrl(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+                return false;
+
+            // Check for direct audio file extensions
+            string[] audioExtensions = { ".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".aac", ".webm", ".flac" };
+            string extension = Path.GetExtension(url).ToLower();
+            
+            if (audioExtensions.Contains(extension))
+                return true;
+
+            // Check if it looks like a MyInstants sound file
+            if (url.Contains("media/sounds/"))
+                return true;
+
+            // Check if it's a data URL (base64 encoded audio)
+            if (url.StartsWith("data:audio/"))
+                return true;
+
+            // Check for common audio file patterns in URLs
+            if (url.Contains(".mp3?") || url.Contains(".wav?") || url.Contains(".ogg?"))
+                return true;
+
+            return false;
         }
 
         private void HandlePlayAudioById(IUser client, string audioIdStr)
@@ -452,36 +640,113 @@ namespace AudioLibraryExtension
         {
             if (string.IsNullOrWhiteSpace(parameters))
             {
-                client.Print("❌ Uso: /audioadd <nombre>|<url>|<dueño>");
+                client.Print("❌ Uso: /addaudio <url> <nombre>");
                 return;
             }
 
-            // CORRECTED LINE: Use char array instead of char + int
-            string[] parts = parameters.Split(new char[] { '|' }, 3);
-
-            if (parts.Length < 3)
+            string[] parts = parameters.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+            
+            if (parts.Length < 2)
             {
-                client.Print("❌ Formato incorrecto. Uso: /audioadd <nombre>|<url>|<dueño>");
+                client.Print("❌ Formato incorrecto. Uso: /addaudio <url> <nombre>");
                 return;
             }
 
-            string name = parts[0].Trim();
-            string url = parts[1].Trim();
-            string owner = parts[2].Trim();
+            string url = parts[0].Trim();
+            string name = parts[1].Trim();
+
+            client.Print($"🔄 Procesando URL: {url}");
+
+            string audioUrl = null;
+            
+            // FIRST: Check if it's a direct audio URL
+            if (IsValidAudioUrl(url))
+            {
+                audioUrl = url;
+                client.Print($"✅ URL es un archivo de audio directo.");
+            }
+            // SECOND: Check if it's a MyInstants page and extract audio URL
+            else if (url.Contains("myinstants.com"))
+            {
+                audioUrl = ExtractAudioUrlFromMyInstants(url);
+                if (audioUrl != null)
+                {
+                    client.Print($"✅ Extraído audio de página MyInstants: {audioUrl}");
+                }
+                else
+                {
+                    client.Print("❌ No se pudo extraer un enlace de audio de la página MyInstants.");
+                    return;
+                }
+            }
+            else
+            {
+                client.Print("❌ URL no válida. Debe ser un enlace directo a audio (.mp3, .wav, etc.) o una página de MyInstants.");
+                return;
+            }
+
+            // Check for duplicate name
+            if (config.Audios.Any(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                client.Print("❌ Ya existe un audio con ese nombre. Usa un nombre diferente.");
+                return;
+            }
+
+            // Check for duplicate URL
+            if (config.Audios.Any(a => a.Url.Equals(audioUrl, StringComparison.OrdinalIgnoreCase)))
+            {
+                client.Print("❌ Ya existe un audio con esa URL.");
+                return;
+            }
+
+            // Test if we can download the audio
+            client.Print($"🔄 Probando descarga del audio...");
+            try
+            {
+                using (WebClient testClient = new WebClient())
+                {
+                    testClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                    testClient.Proxy = null;
+                    
+                    // Try to download just a small portion first
+                    testClient.DownloadData(audioUrl);
+                }
+            }
+            catch (Exception ex)
+            {
+                client.Print($"❌ No se pudo acceder al audio: {ex.Message}");
+                return;
+            }
 
             config.Audios.Add(new AudioEntry
             {
                 Name = name,
-                Url = url,
-                Owner = owner,
+                Url = audioUrl,
+                Owner = client.Name,
                 IsPublic = true,
                 AddedBy = client.Name,
                 AddedDate = DateTime.Now
             });
 
             SaveConfig();
-            client.Print($"✅ Audio '{name}' agregado exitosamente.");
+            
+            // Try to pre-cache the audio
+            Task.Run(() =>
+            {
+                try
+                {
+                    CacheAudioInBackground(config.Audios.Last());
+                    Console.WriteLine($"✅ Audio '{name}' pre-cached.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Audio '{name}' added but could not be pre-cached: {ex.Message}");
+                }
+            });
+
+            client.Print($"✅ Audio '{name}' agregado exitosamente. URL: {audioUrl}");
         }
+
         private void HandleRemoveAudioSubstring(IUser client, string idStr)
         {
             if (string.IsNullOrWhiteSpace(idStr) || !int.TryParse(idStr, out int id) || id < 1 || id > config.Audios.Count)
@@ -497,6 +762,15 @@ namespace AudioLibraryExtension
             {
                 client.Print("❌ Solo el dueño puede eliminar este audio.");
                 return;
+            }
+
+            // Remove from cache
+            lock (cacheLock)
+            {
+                if (audioCache.ContainsKey(audio.Url))
+                {
+                    audioCache.Remove(audio.Url);
+                }
             }
 
             config.Audios.RemoveAt(actualId);
@@ -517,7 +791,8 @@ namespace AudioLibraryExtension
             {
                 var audio = config.Audios[i];
                 string status = IsAudioCached(audio.Url) ? "✅" : "⬇️";
-                client.Print($"{i + 1}. {status} {audio.Name} - Dueño: {audio.Owner}");
+                string ownerBadge = audio.Owner == client.Name ? "👑 " : "";
+                client.Print($"{i + 1}. {status} {ownerBadge}{audio.Name} - Dueño: {audio.Owner}");
             }
         }
 
@@ -846,8 +1121,8 @@ namespace AudioLibraryExtension
             client.Print("/audio <id> - Reproduce un audio en la sala");
             client.Print("/play <url> - Reproduce un audio directamente desde una URL");
             client.Print("/pmaudio <id> <usuario> - Envía audio en privado");
-            client.Print("/audioadd <nombre>|<url>|<dueño> - Añade audio");
-            client.Print("/audioremove <id> - Elimina audio (solo dueño)");
+            client.Print("/addaudio <url> <nombre> - Añade audio desde URL o MyInstants");
+            client.Print("/removeaudio <id> - Elimina audio (solo dueño)");
             client.Print("/audiocache - Info del caché");
             client.Print("/precache - Precarga todos los audios");
             client.Print("/clearcache - Limpia la cache");
