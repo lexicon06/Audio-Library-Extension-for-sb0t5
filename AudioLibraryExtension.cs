@@ -316,7 +316,7 @@ namespace AudioLibraryExtension
                     return;
                 }
 
-                client.Print("❌ Comando no reconocido. Usa /help para ver los comandos disponibles.");
+                /*client.Print("❌ Comando no reconocido. Usa /help para ver los comandos disponibles.");*/
             }
             catch (Exception ex)
             {
@@ -1164,3 +1164,4 @@ namespace AudioLibraryExtension
         #endregion
     }
 }
+
