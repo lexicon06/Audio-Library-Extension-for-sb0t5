@@ -13,12 +13,13 @@ to compatible web and mobile clients.
 <ul>
   <li>🔊 Play audios in public chat rooms</li>
   <li>📩 Send audios via private messages</li>
-  <li>🌐 Play audio directly from external URLs</li>
+  <li>🌐 Play audio directly from external URLs or MyInstants pages</li>
   <li>📚 Persistent audio library stored in JSON</li>
   <li>⚡ In-memory Base64 audio caching</li>
   <li>📊 Cache inspection and management</li>
   <li>🚀 Background audio precaching</li>
   <li>🔐 Owner-based audio removal permissions</li>
+  <li>🔄 Automatic MyInstants URL extraction</li>
   <li>🧪 Debug and test commands</li>
 </ul>
 
@@ -71,7 +72,7 @@ If the file does not exist, a default configuration with sample audios is create
   <li><code>/audios</code> – List all available audios</li>
   <li><code>/audio</code> – Shortcut to list audios</li>
   <li><code>/audio &lt;id&gt;</code> – Play an audio in the room</li>
-  <li><code>/play &lt;url&gt;</code> – Play audio directly from a URL</li>
+  <li><code>/play &lt;url&gt;</code> – Play audio directly from a URL or MyInstants page</li>
 </ul>
 
 <h3>Private Audio</h3>
@@ -81,8 +82,8 @@ If the file does not exist, a default configuration with sample audios is create
 
 <h3>Library Management</h3>
 <ul>
-  <li><code>/audioadd &lt;name&gt;|&lt;url&gt;|&lt;owner&gt;</code> – Add a new audio</li>
-  <li><code>/audioremove &lt;id&gt;</code> – Remove an audio (owner or moderator)</li>
+  <li><code>/addaudio &lt;url&gt; &lt;name&gt;</code> – Add a new audio from URL or MyInstants</li>
+  <li><code>/removeaudio &lt;id&gt;</code> – Remove an audio (owner or moderator)</li>
 </ul>
 
 <h3>Cache & Debug</h3>
@@ -97,13 +98,39 @@ If the file does not exist, a default configuration with sample audios is create
 
 <hr />
 
+<h2>🔗 Supported Audio Sources</h2>
+<ul>
+  <li><strong>Direct Audio URLs</strong> – MP3, WAV, OGG, M4A, AAC, WEBM, FLAC</li>
+  <li><strong>MyInstants Pages</strong> – Automatically extracts audio from myinstants.com pages</li>
+  <li><strong>Library Audios</strong> – Pre-configured audio entries</li>
+</ul>
+
+<hr />
+
 <h2>⚙️ Technical Notes</h2>
 <ul>
   <li>Audios are downloaded using <code>WebClient</code> with proxy disabled</li>
-  <li>Supported formats: MP3, WAV, OGG, AAC, M4A, WEBM</li>
+  <li>Supported formats: MP3, WAV, OGG, AAC, M4A, WEBM, FLAC</li>
   <li>Audio delivery uses Base64 data URIs</li>
   <li>Only Extended Web & Mobile users receive audios</li>
   <li>Reflection is used to access sb0t core user pool</li>
+  <li>Automatic MyInstants URL extraction with multiple fallback methods</li>
+</ul>
+
+<hr />
+
+<h2>📝 Usage Examples</h2>
+<h3>Playing Audio</h3>
+<ul>
+  <li><code>/play https://example.com/audio.mp3</code> – Direct audio file</li>
+  <li><code>/play https://www.myinstants.com/instant/funny-sound/</code> – MyInstants page</li>
+  <li><code>/audio 1</code> – Play audio #1 from library</li>
+</ul>
+
+<h3>Adding Audio</h3>
+<ul>
+  <li><code>/addaudio https://example.com/sound.mp3 My Sound</code></li>
+  <li><code>/addaudio https://myinstants.com/instant/cool-effect/ Cool Effect</code></li>
 </ul>
 
 <hr />
@@ -113,6 +140,7 @@ If the file does not exist, a default configuration with sample audios is create
   <li>Cache is cleared automatically on dispose</li>
   <li>Downloads are protected against duplication</li>
   <li>Thread-safe cache access</li>
+  <li>Background precaching for better performance</li>
 </ul>
 
 <hr />
