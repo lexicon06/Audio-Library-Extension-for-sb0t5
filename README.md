@@ -40,7 +40,7 @@ to compatible web and mobile clients.
 <ol>
   <li>Compile the project targeting <code>net472</code> (x86)</li>
   <li>Copy the generated <code>extension.dll</code> into your sb0t5 <code>extensions</code> folder</li>
-  <li>Restart the server</li>
+  <li>Head to the UI and click the extension to install</li>
   <li>The file <code>audios_config.json</code> will be created automatically on first run</li>
 </ol>
 
