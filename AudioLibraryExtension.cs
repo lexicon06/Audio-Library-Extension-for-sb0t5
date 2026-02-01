@@ -1132,7 +1132,7 @@ namespace AudioLibraryExtension
         }
 
         public void FileReceived(IUser client, string filename, string title, MimeType type) { }
-        public bool Ignoring(IUser client, IUser target) => false;
+        public bool Ignoring(IUser client, IUser target) => true;
         public void IgnoredStateChanged(IUser client, IUser target, bool ignored) { }
         public void InvalidLoginAttempt(IUser client) { }
         public void LoginGranted(IUser client) { }
@@ -1164,4 +1164,5 @@ namespace AudioLibraryExtension
         #endregion
     }
 }
+
 
