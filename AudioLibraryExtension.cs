@@ -316,11 +316,12 @@ namespace AudioLibraryExtension
                     return;
                 }
 
-                /*client.Print("❌ Comando no reconocido. Usa /help para ver los comandos disponibles.");*/
+                client.Print("❌ Comando no reconocido. Usa /help para ver los comandos disponibles.");
             }
             catch (Exception ex)
             {
                 client.Print($"❌ Error: {ex.Message}");
+                Console.WriteLine($"Error in Command: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -386,6 +387,7 @@ namespace AudioLibraryExtension
             catch (Exception ex)
             {
                 client.Print($"❌ Error: {ex.Message}");
+                Console.WriteLine($"Error in HandlePlayFromUrl: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -482,7 +484,7 @@ namespace AudioLibraryExtension
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Error extrayendo URL de audio de MyInstants: {ex.Message}");
+                Console.WriteLine($"❌ Error extrayendo URL de audio de MyInstants: {ex.Message}\n{ex.StackTrace}");
                 return null;
             }
         }
@@ -596,6 +598,7 @@ namespace AudioLibraryExtension
             catch (Exception ex)
             {
                 client.Print($"❌ Error: {ex.Message}");
+                Console.WriteLine($"Error in HandlePlayAudioById: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -815,6 +818,7 @@ namespace AudioLibraryExtension
             catch (Exception ex)
             {
                 client.Print($"❌ Error descargando '{audio.Name}': {ex.Message}");
+                Console.WriteLine($"Error in DownloadAndSendPmAudio: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -834,6 +838,7 @@ namespace AudioLibraryExtension
             catch (Exception ex)
             {
                 sender.Print($"❌ Error: {ex.Message}");
+                Console.WriteLine($"Error in SendPmAudioToUser: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -925,6 +930,7 @@ namespace AudioLibraryExtension
             catch (Exception ex)
             {
                 client.Print($"❌ Error en prueba: {ex.Message}");
+                Console.WriteLine($"Error in HandleTestLibraryAudio: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -937,18 +943,40 @@ namespace AudioLibraryExtension
                 var wUsersField = userPoolType.GetField("WUsers", BindingFlags.Public | BindingFlags.Static);
                 var wUsers = wUsersField.GetValue(null) as System.Collections.IEnumerable;
 
+                if (wUsers == null)
+                {
+                    throw new Exception("No se pudo acceder a la lista de usuarios.");
+                }
+
                 ushort senderVroom = 0;
+                bool senderFound = false;
+                
+                // First find the sender's room
                 foreach (var user in wUsers)
                 {
-                    var userType = user.GetType();
-                    var name = (string)userType.GetProperty("Name").GetValue(user);
-                    var loggedIn = (bool)userType.GetProperty("LoggedIn").GetValue(user);
-
-                    if (loggedIn && name == senderName)
+                    try
                     {
-                        senderVroom = (ushort)userType.GetProperty("Vroom").GetValue(user);
-                        break;
+                        var userType = user.GetType();
+                        var name = (string)userType.GetProperty("Name").GetValue(user);
+                        var loggedIn = (bool)userType.GetProperty("LoggedIn").GetValue(user);
+
+                        if (loggedIn && name == senderName)
+                        {
+                            senderVroom = (ushort)userType.GetProperty("Vroom").GetValue(user);
+                            senderFound = true;
+                            break;
+                        }
                     }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error buscando remitente: {ex.Message}");
+                        continue;
+                    }
+                }
+
+                if (!senderFound)
+                {
+                    throw new Exception("Remitente no encontrado.");
                 }
 
                 int sentCount = 0;
@@ -967,13 +995,16 @@ namespace AudioLibraryExtension
                         if (loggedIn && vroom == senderVroom && !quarantined && extended && (isInbizierWeb || isInbizierMobile))
                         {
                             var audioMethod = userType.GetMethod("Audio", new[] { typeof(string), typeof(string) });
-                            audioMethod?.Invoke(user, new object[] { senderName, base64Audio });
-                            sentCount++;
+                            if (audioMethod != null)
+                            {
+                                audioMethod.Invoke(user, new object[] { senderName, base64Audio });
+                                sentCount++;
+                            }
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error sending audio to user: {ex.Message}");
+                        Console.WriteLine($"Error enviando audio a usuario: {ex.Message}");
                     }
                 }
 
@@ -997,20 +1028,34 @@ namespace AudioLibraryExtension
                 var wUsersField = userPoolType.GetField("WUsers", BindingFlags.Public | BindingFlags.Static);
                 var wUsers = wUsersField.GetValue(null) as System.Collections.IEnumerable;
 
+                if (wUsers == null)
+                {
+                    sender.Print("❌ Error: No se pudo acceder a la lista de usuarios.");
+                    return;
+                }
+
                 object targetUser = null;
 
                 if (ushort.TryParse(targetIdentifier, out ushort userId))
                 {
                     foreach (var user in wUsers)
                     {
-                        var userType = user.GetType();
-                        var id = (ushort)userType.GetProperty("ID").GetValue(user);
-                        var loggedIn = (bool)userType.GetProperty("LoggedIn").GetValue(user);
-
-                        if (loggedIn && id == userId)
+                        try
                         {
-                            targetUser = user;
-                            break;
+                            var userType = user.GetType();
+                            var id = (ushort)userType.GetProperty("ID").GetValue(user);
+                            var loggedIn = (bool)userType.GetProperty("LoggedIn").GetValue(user);
+
+                            if (loggedIn && id == userId)
+                            {
+                                targetUser = user;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error buscando usuario por ID: {ex.Message}");
+                            continue;
                         }
                     }
                 }
@@ -1018,14 +1063,22 @@ namespace AudioLibraryExtension
                 {
                     foreach (var user in wUsers)
                     {
-                        var userType = user.GetType();
-                        var name = (string)userType.GetProperty("Name").GetValue(user);
-                        var loggedIn = (bool)userType.GetProperty("LoggedIn").GetValue(user);
-
-                        if (loggedIn && name.Equals(targetIdentifier, StringComparison.OrdinalIgnoreCase))
+                        try
                         {
-                            targetUser = user;
-                            break;
+                            var userType = user.GetType();
+                            var name = (string)userType.GetProperty("Name").GetValue(user);
+                            var loggedIn = (bool)userType.GetProperty("LoggedIn").GetValue(user);
+
+                            if (loggedIn && name.Equals(targetIdentifier, StringComparison.OrdinalIgnoreCase))
+                            {
+                                targetUser = user;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error buscando usuario por nombre: {ex.Message}");
+                            continue;
                         }
                     }
                 }
@@ -1036,32 +1089,67 @@ namespace AudioLibraryExtension
                     return;
                 }
 
-                var targetType = targetUser.GetType();
-                var targetName = (string)targetType.GetProperty("Name").GetValue(targetUser);
-                var isInbizierWeb = (bool)targetType.GetProperty("IsInbizierWeb").GetValue(targetUser);
-                var isInbizierMobile = (bool)targetType.GetProperty("IsInbizierMobile").GetValue(targetUser);
-
-                if (!isInbizierWeb && !isInbizierMobile)
+                try
                 {
-                    sender.Print($"❌ {targetName} no puede recibir audios.");
-                    return;
-                }
+                    var targetType = targetUser.GetType();
+                    var targetName = (string)targetType.GetProperty("Name").GetValue(targetUser);
+                    var isInbizierWeb = (bool)targetType.GetProperty("IsInbizierWeb").GetValue(targetUser);
+                    var isInbizierMobile = (bool)targetType.GetProperty("IsInbizierMobile").GetValue(targetUser);
 
-                var ignoreList = targetType.GetProperty("IgnoreList").GetValue(targetUser) as System.Collections.IList;
-                if (ignoreList != null && ignoreList.Contains(sender.Name))
+                    if (!isInbizierWeb && !isInbizierMobile)
+                    {
+                        sender.Print($"❌ {targetName} no puede recibir audios.");
+                        return;
+                    }
+
+                    // Check if user is ignoring the sender - with null safety
+                    bool isIgnoring = false;
+                    try
+                    {
+                        var ignoreListProperty = targetType.GetProperty("IgnoreList");
+                        if (ignoreListProperty != null)
+                        {
+                            var ignoreListValue = ignoreListProperty.GetValue(targetUser);
+                            if (ignoreListValue is System.Collections.IList ignoreList && ignoreList != null)
+                            {
+                                isIgnoring = ignoreList.Contains(sender.Name);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log but don't fail if we can't check ignore list
+                        Console.WriteLine($"Advertencia: No se pudo verificar lista de ignorados: {ex.Message}");
+                    }
+
+                    if (isIgnoring)
+                    {
+                        sender.Print($"❌ {targetName} te está ignorando.");
+                        return;
+                    }
+
+                    // Send the audio
+                    var pmAudioMethod = targetType.GetMethod("PmAudio", new[] { typeof(string), typeof(string) });
+                    if (pmAudioMethod != null)
+                    {
+                        pmAudioMethod.Invoke(targetUser, new object[] { sender.Name, base64Audio });
+                        sender.Print($"✅ Audio '{audio.Name}' enviado en privado a {targetName}.");
+                    }
+                    else
+                    {
+                        sender.Print("❌ Error: No se pudo encontrar el método para enviar audio.");
+                    }
+                }
+                catch (Exception ex)
                 {
-                    sender.Print($"❌ {targetName} te está ignorando.");
-                    return;
+                    Console.WriteLine($"Error al enviar audio PM: {ex.Message}\n{ex.StackTrace}");
+                    sender.Print($"❌ Error al enviar audio: {ex.Message}");
                 }
-
-                var pmAudioMethod = targetType.GetMethod("PmAudio", new[] { typeof(string), typeof(string) });
-                pmAudioMethod?.Invoke(targetUser, new object[] { sender.Name, base64Audio });
-
-                sender.Print($"✅ Audio '{audio.Name}' enviado en privado a {targetName}.");
             }
             catch (Exception ex)
             {
-                sender.Print($"❌ Error: {ex.Message}");
+                Console.WriteLine($"Error en SendPmAudioToUserBase64: {ex.Message}\n{ex.StackTrace}");
+                sender.Print($"❌ Error del sistema: {ex.Message}");
             }
         }
 
@@ -1164,5 +1252,3 @@ namespace AudioLibraryExtension
         #endregion
     }
 }
-
-
